@@ -1,0 +1,4 @@
+name = Prosody Fulltext Search
+description = A custom page for a custom PHP SOLR client
+package = Current Project
+core = 7.x

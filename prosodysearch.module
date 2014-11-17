@@ -1,0 +1,139 @@
+<?php
+/**
+ * @file
+ * Created by Ben Johnston
+ * based on http://www.sixmiletech.com/content/never-put-php-node-again
+ * Implement SOLR PHP client for the Princeton Prosody Archive
+ *
+ */
+
+
+
+
+
+
+function prosodysearch_menu() {
+  $items = array();
+  /* The keys to the return $items array will be the system paths that are pages
+  * are accessible at.
+  */
+  // This page will be at http://oursite.com/custom-page
+  $items['prosodysearch'] = array(
+    'title' => 'Alternate Search',
+    // 'page callback' must be name of the function which will return the text (or render array) for the page.
+    'page callback' => 'prosodysearch_output',
+    // 'access callback' must be the name of a function that will determine if the current user has access to this page.
+    'access callback' => 'user_access',
+    // 'access arguments' is an array of arguments to the 'access callback'(in our case user_access).
+    'access arguments' => array('access content'),
+  );
+
+  $items['prosodydetail'] = array(
+    'title' => 'Detail',
+    // 'page callback' must be name of the function which will return the text (or render array) for the page.
+    'page callback' => 'prosodydetail_output',
+    // 'access callback' must be the name of a function that will determine if the current user has access to this page.
+    'access callback' => 'user_access',
+    // 'access arguments' is an array of arguments to the 'access callback'(in our case user_access).
+    'access arguments' => array('access content'),
+  );
+
+  return $items;
+}
+
+
+function prosodydetail_output() {
+
+	include('ets.php');
+	include('solr.class.php');
+	$solr = new Solr;
+	$path = drupal_get_path('module', 'prosodysearch');
+
+	if(isset($_GET['s']) && isset($_GET['htid']))
+	{
+
+	$htid = $_GET['htid'];
+
+	$args = array();
+	$args['q'] = urlencode($_GET['s']);
+	$args['fq'] = "htid:".$htid;
+	$args['hl'] = "true";
+	$args['hl.fragsize'] = "400";
+	$args['wt'] = "json";
+	$args['start'] = "0";
+	$args['rows'] = "1000";
+
+	$r = $solr->getSOLR($args);
+	$page->q = $args['q'];
+	$page->results = $solr->cleanupDetail($r);
+	usort($page->results, array($solr, "sortPagesReturned"));
+
+
+	$content =  sprintt($page, $path.'/templates/searchform.tpl');
+	$content .= sprintt($page, $path.'/templates/detail.tpl');
+	}
+   return $content;
+}
+
+
+
+
+
+
+
+
+/**
+ * Page Callback for 'custom-page' - add your PHP code here.
+ * @return string
+ */
+function prosodysearch_output() {
+
+	include('ets.php');
+	include('solr.class.php');
+	$solr = new Solr;
+
+	$path = drupal_get_path('module', 'prosodysearch');
+
+	if(isset($_GET['s']))
+	{
+	$args = array();
+
+	if($_GET['start'] != '' && $_GET['end'] != '') { 
+	  $args['fq'] = urlencode("year:[".$_GET['start']." TO ".$_GET['end']."]");
+	}
+
+	if(isset($_GET['sort'])) {  $args['sort'] = urlencode($_GET['sort']); }
+
+	$args['q'] = urlencode($_GET['s']);
+	$args['group'] = "true";
+	$args['group.field'] = "htid";
+	$args['fl'] = "htid,nid,record,title,author,year,publisher";
+	$args['wt'] = "json";
+	$args['start'] = "0";
+	$args['rows'] = "1000";
+
+	$r = $solr->getSOLR($args);
+	$page = new stdClass();
+	$page->hits = $r->grouped->htid->matches;
+	foreach($_GET as $key=>$val) { $page->$key = $val; }
+	$page->querystr = $_SERVER['QUERY_STRING'];
+	$page->q = urldecode($_GET['s']);
+	$cnt = 0;
+
+	foreach($r->grouped->htid->groups as $group) {
+	  $page->results[$cnt] = $group->doclist->docs[0];
+	  $page->results[$cnt]->numfound = $group->doclist->numFound;
+	  $cnt++;
+	}
+
+	if($_GET['sort']=='') { usort($page->results, array($solr, "sortNumFound")); }
+
+	$content = sprintt($page, $path.'/templates/searchform.tpl');
+	//$content .= $app->makeTimeline($args);
+	$content .= sprintt($page, $path.'/templates/searchresults.tpl');
+	}
+	else {
+	$content = sprintt(NULL, $path.'/templates/searchform.tpl');
+	}
+    return $content;
+}
