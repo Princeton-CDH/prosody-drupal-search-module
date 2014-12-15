@@ -46,12 +46,41 @@ function cleanupDetail($result) {
   foreach($result->response->docs as $doc) { 
     $id = $doc->id;
     $returnArr[$id]->seq = $doc->seq;
+    $returnArr[$id]->year = $doc->year;
+    $returnArr[$id]->htid = $doc->htid;
     $returnArr[$id]->content = $result->highlighting->$id->content[0];
    }
   return $returnArr;
 }
 
 
+
+
+
+function paginationMenu ($queryArr, $numpages, $current, $range) {
+  $linkArr = array();
+  $start = $current-$range;
+  $end = $current+$range;
+
+  if($start<1) { $start = 1; $end = ($range*2)+1; }
+  if($end>$numpages) { $end = $numpages; }
+  unset($queryArr['q']);
+  unset($queryArr['page']);
+  $queryStr = "";
+  foreach($queryArr as $key=>$val) { $queryStr .= $key."=".$val."&";  }
+
+  if($start > 1) {
+     $linkArr[] = "<span class='pagination-menu-item' style='padding-right:5px;'><a href='prosodysearch?".$queryStr."page=1'>First</a></span> ... ";
+  }
+
+  for($x=$start;$x<=$end;$x++)
+	{
+	if($x==$current) { $linkArr[] = "<span class='pagination-menu-item-active'><a href='prosodysearch?".$queryStr."page=".$x."'>".$x."</a></span>"; }
+	else {$linkArr[] =  "<span class='pagination-menu-item'><a href='prosodysearch?".$queryStr."page=".$x."'>".$x."</a></span>";  }
+	}
+  $linkArr[] = "... <span class='pagination-menu-item' style='padding-right:5px;'><a href='prosodysearch?".$queryStr."page=".$numpages."'>Last</a></span>";
+  return implode($linkArr);
+}
 
 
 

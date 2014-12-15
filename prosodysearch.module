@@ -49,23 +49,28 @@ function prosodydetail_output() {
 	$solr = new Solr;
 	$path = drupal_get_path('module', 'prosodysearch');
 
-	if(isset($_GET['s']) && isset($_GET['htid']))
+	if(isset($_GET['s']) && isset($_GET['nid']))
 	{
 
-	$htid = $_GET['htid'];
+	$nid = $_GET['nid'];
 
 	$args = array();
 	$args['q'] = urlencode($_GET['s']);
-	$args['fq'] = "htid:".$htid;
+	$args['fq'] = "nid:".$nid;
 	$args['hl'] = "true";
-	$args['hl.fragsize'] = "400";
+	$args['hl.fragsize'] = "800";
 	$args['wt'] = "json";
 	$args['start'] = "0";
 	$args['rows'] = "1000";
 
 	$r = $solr->getSOLR($args);
+	
+	$page = node_load($nid);
+//print_r($page);
 	$page->q = $args['q'];
+
 	$page->results = $solr->cleanupDetail($r);
+//print_r($page);
 	usort($page->results, array($solr, "sortPagesReturned"));
 
 
@@ -75,10 +80,39 @@ function prosodydetail_output() {
    return $content;
 }
 
+function prosodysearchGetAuthors ($node_contributors_array) {
+  $returnArr = array();
+  foreach($node_contributors_array as $c)
+  {
+    $obj = new StdClass();
+    $obj-> name = $c['name'];
+    $obj->firstname = $c['firstname'];
+    $obj->lastname = $c['lastname'];
+    $obj->cid = $c['cid'];
+    $returnArr[] = $obj;
+  }
+  return $returnArr;
+}
 
 
 
 
+function prosodysearchGetAuthorString ($node_contributors_array) {
+  $returnArr = array();
+  foreach($node_contributors_array as $c)
+  {
+    $returnArr[] = "<a href='/biblio?f[author]=".$c['cid']."'>".$c['name']."</a>"; 
+   /*
+    $obj = new StdClass();
+    $obj-> name = $c['name'];
+    $obj->firstname = $c['firstname'];
+    $obj->lastname = $c['lastname'];
+    $obj->cid = $c['cid'];
+    $returnArr[] = $obj;
+   */
+  }
+  return implode(', ',$returnArr);
+}
 
 
 
@@ -92,45 +126,73 @@ function prosodysearch_output() {
 	include('solr.class.php');
 	$solr = new Solr;
 
+	$results_per_page = 300;
+
 	$path = drupal_get_path('module', 'prosodysearch');
 
 	if(isset($_GET['s']))
 	{
 	$args = array();
 
-	if($_GET['start'] != '' && $_GET['end'] != '') { 
-	  $args['fq'] = urlencode("year:[".$_GET['start']." TO ".$_GET['end']."]");
+	if(isset($_GET['start'])) {
+	  if($_GET['start'] != '' && $_GET['end'] != '') {  $args['fq'] = urlencode("year:[".$_GET['start']." TO ".$_GET['end']."]"); }
 	}
+        if(isset($_GET['sort'])) {  $args['sort'] = urlencode($_GET['sort']); }
 
-	if(isset($_GET['sort'])) {  $args['sort'] = urlencode($_GET['sort']); }
+        // now get paginated results
+        if(isset($_GET['page'])) { $p = $_GET['page']; } else { $p = 1; }
 
-	$args['q'] = urlencode($_GET['s']);
-	$args['group'] = "true";
-	$args['group.field'] = "htid";
-	$args['fl'] = "htid,nid,record,title,author,year,publisher";
-	$args['wt'] = "json";
-	$args['start'] = "0";
-	$args['rows'] = "1000";
+        $offset = ($results_per_page*$p)-$results_per_page;
+        $length = $results_per_page;
+
+	$args['q'] 		= urlencode($_GET['s']);
+	$args['fl']		= "nid,record";
+	$args['group'] 		= "true";
+	$args['group.ngroups']	= "true";
+        $args['group.field']    = "nid";
+	$args['wt']		= "json";
+        $args['start']       	= $offset;
+        $args['rows']       	= $length;
+
+
 
 	$r = $solr->getSOLR($args);
-	$page = new stdClass();
-	$page->hits = $r->grouped->htid->matches;
-	foreach($_GET as $key=>$val) { $page->$key = $val; }
+
+
+        $page = new stdClass();
+        $page->records 	= $r->grouped->nid->ngroups;
+        $page->hits 	= $r->grouped->nid->matches;
+
+        $num_pages = ceil($page->records/$results_per_page);
+
+	//this puts query string values into $page object so that the form can be repopulated
+	foreach($_GET as $key=>$val) { $page->$key = $val; $queryArr[$key] = $val; }
+
 	$page->querystr = $_SERVER['QUERY_STRING'];
 	$page->q = urldecode($_GET['s']);
-	$cnt = 0;
 
-	foreach($r->grouped->htid->groups as $group) {
-	  $page->results[$cnt] = $group->doclist->docs[0];
+	$cnt = 0;
+	foreach($r->grouped->nid->groups as $group) {
+
+	  $nid = $group->doclist->docs[0]->nid;
+	  $recordid = $group->doclist->docs[0]->record;
+	  $page->results[$cnt] = node_load($nid);
+          $page->results[$cnt]->authors = prosodysearchGetAuthors ($page->results[$cnt]->biblio_contributors);
+	  $page->results[$cnt]->author_string = prosodysearchGetAuthorString ($page->results[$cnt]->biblio_contributors);
+	  $page->results[$cnt]->record = $recordid;
 	  $page->results[$cnt]->numfound = $group->doclist->numFound;
 	  $cnt++;
 	}
 
-	if($_GET['sort']=='') { usort($page->results, array($solr, "sortNumFound")); }
+//print_r($page);
+	//if($_GET['sort']=='') { usort($page->results, array($solr, "sortNumFound")); }
 
 	$content = sprintt($page, $path.'/templates/searchform.tpl');
 	//$content .= $app->makeTimeline($args);
-	$content .= sprintt($page, $path.'/templates/searchresults.tpl');
+	$page->pagination_nav = "<p id='pagination'>Page: ".$solr->paginationMenu ($queryArr, $num_pages, $p, 10)."</p>";
+        if(isset($_GET['author'])) {
+          $content .= sprintt($page, $path.'/templates/authorresults.tpl'); }
+        else {	$content .= sprintt($page, $path.'/templates/searchresults.tpl'); }
 	}
 	else {
 	$content = sprintt(NULL, $path.'/templates/searchform.tpl');
